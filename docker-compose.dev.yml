@@ -1,0 +1,14 @@
+version: '3.1'
+
+services:
+  web:
+    volumes:
+      - ./custom_addons:/mnt/extra-addons
+      - ./config/odoo.dev.conf:/etc/odoo/odoo.conf
+    # The --dev=all flag enables auto-reloading of python files when they change
+    command: odoo --dev=all
+    
+  db:
+    # Use a local folder so you can easily reset it if needed
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data/pgdata
