@@ -32,11 +32,9 @@ class KitchenScreen(models.Model):
         """Domain for the Pos Shop"""
         kitchen = self.search([])
         if kitchen:
-            return [('module_pos_restaurant', '=', True),
-                    (
-                    'id', 'not in', [rec.id for rec in kitchen.pos_config_id])]
+            return [('id', 'not in', [rec.id for rec in kitchen.pos_config_id])]
         else:
-            return [('module_pos_restaurant', '=', True)]
+            return []
 
     sequence = fields.Char(readonly=True, default='New',
                            copy=False, tracking=True, help="Sequence of items")
