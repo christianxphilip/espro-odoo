@@ -207,8 +207,10 @@ class PosOrder(models.Model):
                 vals.update({
                     'is_cooking': True,
                     'order_ref': self.name,
-                    'order_status': 'ready'
                 })
+                # Prevent auto-completing in the kitchen when paid
+                if self.order_status not in ['waiting', 'ready', 'cancel']:
+                    vals['order_status'] = 'draft'
                 self.write(vals)
                 message = {
                     'res_model': self._name,
