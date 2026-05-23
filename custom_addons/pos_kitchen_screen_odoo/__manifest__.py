@@ -59,6 +59,10 @@
             'pos_kitchen_screen_odoo/static/src/js/fields_load.js',
             'pos_kitchen_screen_odoo/static/src/js/order_pay.js',
             'pos_kitchen_screen_odoo/static/src/js/order_button.js',
+            'pos_kitchen_screen_odoo/static/src/js/product_screen_sort.js',
+            'pos_kitchen_screen_odoo/static/src/js/product_card_sort.js',
+            'pos_kitchen_screen_odoo/static/src/xml/product_screen_sort.xml',
+            'pos_kitchen_screen_odoo/static/src/xml/product_card_sort.xml',
         ],
         'web.assets_backend': [
             'pos_kitchen_screen_odoo/static/src/css/kitchen_screen.css',

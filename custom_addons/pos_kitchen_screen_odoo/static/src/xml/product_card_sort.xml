@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="pos_kitchen_screen_odoo.ProductCardSort" t-inherit="point_of_sale.ProductCard" t-inherit-mode="extension">
+        <xpath expr="//article" position="inside">
+            <span class="pos-favorite-toggle" style="position: absolute; top: 5px; left: -10px; cursor: pointer;" t-on-click.stop="() => this.toggleFavorite(props.product)">
+                <i t-attf-class="product-information-tag-logo fa fa-star{{props.product.is_favorite ? '' : '-o'}} text-warning" title="Toggle Favorite"></i>
+            </span>
+        </xpath>
+    </t>
+
+</templates>
