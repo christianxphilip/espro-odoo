@@ -55,6 +55,34 @@
                             </div>
                         </div>
                         <div class="col-12 col-lg-6 o_setting_box"
+                             id="warning_time_per_item">
+                            <div class="o_setting_left_pane">
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="warning_time_per_item"/>
+                                <div class="text-muted">
+                                    <div>
+                                        <field name="warning_time_per_item"/>
+                                    </div>
+                                    Minutes per item before the order turns yellow
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box"
+                             id="danger_time_per_item">
+                            <div class="o_setting_left_pane">
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="danger_time_per_item"/>
+                                <div class="text-muted">
+                                    <div>
+                                        <field name="danger_time_per_item"/>
+                                    </div>
+                                    Minutes per item before the order turns red
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box"
                              id="is_preparation_complete">
                             <div class="o_setting_left_pane">
                             </div>

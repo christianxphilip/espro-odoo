@@ -52,6 +52,7 @@
         "views/pos_kitchen_screen_odoo_menus.xml",
         "views/pos_order_views.xml",
         "views/product_product_views.xml",
+        "views/kitchen_reporting_views.xml",
     ],
     'assets': {
         'point_of_sale._assets_pos': [

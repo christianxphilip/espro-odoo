@@ -1,70 +1,14 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<template>
-    <!--Template for Kitchen order stages  -->
-        <t t-name="KitchenCustomDashBoard">
-        <div id="kitchen_screen" class="kitchen">
-            <div class="body_wrapper">
-                <!-- Top Navigation Bar (Native Odoo Style) -->
-                <div class="top_bar">
-                    <div class="left_section">
-                        <!-- Left Icon (e.g., Sidebar toggle placeholder) -->
-                        <button class="action-btn">
-                            <i class="fa fa-columns"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="center_filters">
-                        <a class="filter-btn" t-att-class="{'active': state.stages === 'all'}" t-on-click="(e) => this.all_stage(e)">
-                            All
-                        </a>
-                        <a class="filter-btn" t-att-class="{'active': state.stages === 'draft'}" t-on-click="(e) => this.draft_stage(e)">
-                            To prepare <span class="badge-count badge-grey"><t t-esc="state.draft_count"/></span>
-                        </a>
-                        <a class="filter-btn" t-att-class="{'active': state.stages === 'waiting'}" t-on-click="(e) => this.waiting_stage(e)">
-                            Ready <span class="badge-count badge-blue"><t t-esc="state.waiting_count"/></span>
-                        </a>
-                        <a class="filter-btn" t-att-class="{'active': state.stages === 'ready'}" t-on-click="(e) => this.ready_stage(e)">
-                            Completed <span class="badge-count badge-green"><t t-esc="state.ready_count"/></span>
-                        </a>
-                    </div>
-                    
-                    <div class="right_section">
-                        <t t-if="state.stages === 'waiting'">
-                            <button class="action-btn" t-on-click="(e) => this.recall_order(e)">
-                                <i class="fa fa-undo"></i> Recall
-                            </button>
-                        </t>
-                        <t t-if="state.stages === 'ready'">
-                            <button class="action-btn" t-on-click="(e) => this.clear_completed_orders(e)">
-                                <i class="fa fa-check"></i> Done
-                            </button>
-                        </t>
-                        <t t-if="state.stages === 'draft' or state.stages === 'all'">
-                            <button class="action-btn" disabled="1" style="opacity: 0.5; cursor: not-allowed;">
-                                <i class="fa fa-undo"></i> Recall
-                            </button>
-                        </t>
-                        <button class="action-btn" onclick="window.history.back()">
-                            Close <i class="fa fa-sign-out"></i>
-                        </button>
-                    </div>
-                </div>
+import re
 
-                <!-- Orders Container -->
-                <div class="orders_container container-fluid">
-                    <t t-call="KitchenOrder"/>
-                </div>
-            </div>
-        </div>
-    </t>
-    <!--Template for Kitchen Orders in the kitchen screen -->
-                <t t-name="KitchenOrder">
+with open('custom_addons/pos_kitchen_screen_odoo/static/src/xml/kitchen_screen_templates.xml', 'r') as f:
+    xml_content = f.read()
+
+new_kitchen_order = """    <t t-name="KitchenOrder">
         <div class="row">
             <t t-foreach="this.filteredOrders" t-as="order" t-key="order.id">
                 <div class="col-lg-3 col-md-4 col-sm-6 col-12 mb-3">
-                    <div t-att-class="'card h-100 order-card-stage ' + (state.countdowns[order.id] ? 'alert-' + state.countdowns[order.id].alert_level : '')" style="border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 2px solid transparent;">
+                    <div class="card h-100" style="border: none; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                         
-
                         <!-- Clickable Header that advances state -->
                         <div class="card-header bg-white" 
                              style="cursor: pointer; padding: 12px 15px; border-bottom: 1px solid #f0f0f0; border-radius: 8px 8px 0 0;"
@@ -91,15 +35,15 @@
                                 
                                 <span class="badge rounded-pill bg-white border text-dark d-flex align-items-center" style="font-size: 13px; font-weight: 500; padding: 5px 10px;">
                                     <i class="fa fa-clock-o me-1"/>
-                                    <t t-if="order.order_status == 'ready' and order.completion_duration">
-                                        <t t-esc="order.completion_duration"/>
-                                    </t>
-                                    <t t-elif="state.countdowns[order.id]">
-                                        <t t-if="state.countdowns[order.id].minutes > 0">
-                                            <t t-esc="state.countdowns[order.id].minutes"/>'
-                                        </t>
+                                    <t t-if="state.countdowns[order.id]">
+                                        <t t-if="state.countdowns[order.id].isCompleted">00:00</t>
                                         <t t-else="">
-                                            <t t-esc="state.countdowns[order.id].seconds"/>"
+                                            <t t-if="state.countdowns[order.id].minutes > 0">
+                                                <t t-esc="state.countdowns[order.id].minutes"/>'
+                                            </t>
+                                            <t t-else="">
+                                                <t t-esc="state.countdowns[order.id].seconds"/>"
+                                            </t>
                                         </t>
                                     </t>
                                     <t t-else="">0'</t>
@@ -139,4 +83,12 @@
             </t>
         </div>
     </t>
-</template>
+</template>"""
+
+pattern2 = r'<t t-name="KitchenOrder">.*</template>'
+xml_content = re.sub(pattern2, new_kitchen_order, xml_content, flags=re.DOTALL)
+
+with open('custom_addons/pos_kitchen_screen_odoo/static/src/xml/kitchen_screen_templates.xml', 'w') as f:
+    f.write(xml_content)
+
+print("XML template rewritten successfully for card layout.")

@@ -1,4 +1,4 @@
-
+css_content = """
 .kitchen {
     height: 100vh;
     overflow: hidden;
@@ -124,22 +124,9 @@
 .kitchen .accept_order_line:hover {
     background-color: #f8f9fa;
 }
+"""
 
-/* Dynamic Warning Classes for Kitchen Screen */
-.order-card-stage.alert-warning {
-    background-color: #fff3cd !important;
-    border-color: #ffe69c !important;
-}
-.order-card-stage.alert-warning .card-header {
-    background-color: #ffecb5 !important;
-    border-bottom-color: #ffe69c !important;
-}
+with open('custom_addons/pos_kitchen_screen_odoo/static/src/css/kitchen_screen.css', 'w') as f:
+    f.write(css_content)
 
-.order-card-stage.alert-danger {
-    background-color: #f8d7da !important;
-    border-color: #f5c2c7 !important;
-}
-.order-card-stage.alert-danger .card-header {
-    background-color: #f1b0b7 !important;
-    border-bottom-color: #f5c2c7 !important;
-}
+print("CSS rewritten.")

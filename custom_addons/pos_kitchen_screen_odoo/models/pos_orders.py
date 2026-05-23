@@ -39,6 +39,8 @@ class PosOrder(models.Model):
                             help='Reference of the order')
     is_cooking = fields.Boolean(string="Is Cooking",
                                 help='To identify the order is kitchen orders')
+    completion_duration = fields.Char(string="Completion Duration", help="Total time taken to complete the order")
+    time_to_prepare = fields.Float(string="Preparation Time (Min)", help="Time in minutes taken to complete the order", store=True)
     hour = fields.Char(string="Order Time", readonly=True,
                        help='To set the time of each order')
     minutes = fields.Char(string='Order time')
@@ -111,6 +113,8 @@ class PosOrder(models.Model):
     def write(self, vals):
         """Override write function for adding order status in vals"""
         res = super(PosOrder, self).write(vals)
+        if self.env.context.get('skip_kitchen_check'):
+            return res
         for order in self:
             kitchen_screen = self.env["kitchen.screen"].search(
                 [("pos_config_id", "=", order.config_id.id)], limit=1
@@ -164,7 +168,14 @@ class PosOrder(models.Model):
                 for categ in line.product_id.pos_categ_ids
             )
         )
-        values = {"orders": pos_orders.read(), "order_lines": pos_lines.read()}
+        values = {
+            "orders": pos_orders.read(),
+            "order_lines": pos_lines.read(),
+            "config": {
+                "warning_time_per_item": kitchen_screen[0].warning_time_per_item,
+                "danger_time_per_item": kitchen_screen[0].danger_time_per_item
+            }
+        }
         user_tz_str = self.env.user.tz or 'UTC'
         user_tz = pytz.timezone(user_tz_str)
         utc = pytz.utc
@@ -266,6 +277,15 @@ class PosOrder(models.Model):
         """Action for "Done" button: Move order from 'waiting' (ready) to 'ready' (completed) status."""
         self.ensure_one()
         self.order_status = "ready"
+        if self.date_order:
+            from datetime import datetime
+            delta = datetime.now() - self.date_order
+            total_seconds = int(delta.total_seconds())
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            self.completion_duration = f"{minutes:02d}:{seconds:02d}"
+            self.time_to_prepare = total_seconds / 60.0
+        
         kitchen_screen = self.env["kitchen.screen"].search(
             [("pos_config_id", "=", self.config_id.id)], limit=1)
         if kitchen_screen:
@@ -273,6 +293,9 @@ class PosOrder(models.Model):
                 if line.product_id.pos_categ_ids and any(
                         cat.id in kitchen_screen.pos_categ_ids.ids for cat in line.product_id.pos_categ_ids):
                     line.order_status = "ready"
+                    if not line.completion_duration and self.date_order:
+                        line.completion_duration = f"{minutes:02d}m {seconds:02d}s"
+                        line.time_to_prepare = total_seconds / 60.0
         message = {
             'res_model': self._name,
             'message': 'pos_order_completed',
@@ -281,6 +304,52 @@ class PosOrder(models.Model):
         }
         channel = f'pos_order_created_{self.config_id.id}'
         self.env["bus.bus"]._sendone(channel, "notification", message)
+
+
+    @api.model
+    def recall_latest_ready_order(self, shop_id):
+        latest_waiting_order = self.search([
+            ('order_status', '=', 'waiting'), 
+            ('config_id', '=', shop_id)
+        ], order='write_date desc', limit=1)
+        
+        if latest_waiting_order:
+            latest_waiting_order.order_status = 'draft'
+            for line in latest_waiting_order.lines:
+                if line.order_status == 'waiting':
+                    line.order_status = 'draft'
+            message = {
+                'res_model': self._name,
+                'message': 'pos_order_recalled',
+                'order_id': latest_waiting_order.id,
+                'config_id': latest_waiting_order.config_id.id
+            }
+            channel = f'pos_order_created_{latest_waiting_order.config_id.id}'
+            self.env["bus.bus"]._sendone(channel, "notification", message)
+            return True
+        return False
+
+    @api.model
+    def clear_completed_orders(self, shop_id):
+        completed_orders = self.search([
+            ('order_status', '=', 'ready'),
+            ('config_id', '=', shop_id),
+            ('is_cooking', '=', True)
+        ])
+        if completed_orders:
+            completed_orders.with_context(skip_kitchen_check=True).write({'is_cooking': False})
+            for line in completed_orders.mapped('lines'):
+                line.with_context(skip_kitchen_check=True).write({'is_cooking': False})
+            
+            message = {
+                'res_model': self._name,
+                'message': 'pos_order_cleared',
+                'config_id': shop_id
+            }
+            channel = f'pos_order_created_{shop_id}'
+            self.env["bus.bus"]._sendone(channel, "notification", message)
+            return True
+        return False
 
     @api.model
     def check_order(self, order_name):
@@ -293,14 +362,16 @@ class PosOrder(models.Model):
             [("pos_config_id", "=", pos_order.config_id.id)], limit=1)
         if not kitchen_screen:
             return False
-        unhandled_categories = []
+        has_kitchen_items = False
         for line in pos_order.lines:
-            if line.product_id.pos_categ_ids and not any(
+            if line.product_id.pos_categ_ids and any(
                     cat.id in kitchen_screen.pos_categ_ids.ids for cat in line.product_id.pos_categ_ids):
-                unhandled_categories.extend(
-                    [c.name for c in line.product_id.pos_categ_ids if c.id not in kitchen_screen.pos_categ_ids.ids])
-        if unhandled_categories:
-            return {'category': ", ".join(list(set(unhandled_categories)))}
+                has_kitchen_items = True
+                break
+
+        if not has_kitchen_items:
+            return False
+
         if pos_order.order_status not in ['ready', 'cancel']:
             return True
         else:
@@ -441,9 +512,14 @@ class PosOrderLine(models.Model):
                             help='Order reference of order')
     is_cooking = fields.Boolean(string="Cooking", default=False,
                                 help='To identify the order is kitchen orders')
+    completion_duration = fields.Char(string="Completion Duration", help="Total time taken to complete the order")
     customer_id = fields.Many2one('res.partner', string="Customer",
                                   related='order_id.partner_id',
                                   help='Id of the customer')
+    completion_duration = fields.Char(string="Completion Duration", 
+                                      help="Time taken to complete this item")
+    time_to_prepare = fields.Float(string="Preparation Time (Min)", 
+                                   help="Time in minutes taken to complete this item", store=True)
 
     def get_product_details(self, ids):
         """Fetch details for specific order lines."""
@@ -463,17 +539,50 @@ class PosOrderLine(models.Model):
         old_status = self.order_status
         if self.order_status == 'ready':
             self.order_status = 'waiting'
+            self.completion_duration = False
         else:
             self.order_status = 'ready'
+            if self.order_id.date_order:
+                from datetime import datetime
+                delta = datetime.now() - self.order_id.date_order
+                total_seconds = int(delta.total_seconds())
+                minutes = total_seconds // 60
+                seconds = total_seconds % 60
+                self.completion_duration = f"{minutes:02d}m {seconds:02d}s"
+                self.time_to_prepare = total_seconds / 60.0
 
         if old_status != self.order_status:
-            message = {
-                'res_model': 'pos.order.line',
-                'message': 'pos_order_line_updated',
-                'line_id': self.id,
-                'order_id': self.order_id.id,
-                'config_id': self.order_id.config_id.id,
-                'new_status': self.order_status
-            }
-            channel = f'pos_order_created_{self.order_id.config_id.id}'
-            self.env["bus.bus"]._sendone(channel, "notification", message)
+            # Check if all kitchen lines for this order are now ready
+            all_lines_ready = True
+            for line in self.order_id.lines:
+                if line.is_cooking and line.order_status != 'ready' and line.order_status != 'cancel':
+                    all_lines_ready = False
+                    break
+            
+            if all_lines_ready:
+                if self.order_id.order_status == 'draft':
+                    # Auto-advance the order to ready
+                    self.order_id.order_progress_draft()
+                elif self.order_id.order_status == 'waiting':
+                    # Auto-advance the order to completed
+                    self.order_id.order_progress_change()
+                else:
+                    # Just notify
+                    message = {
+                        'res_model': self._name,
+                        'message': 'pos_order_line_progress',
+                        'order_id': self.order_id.id,
+                        'config_id': self.order_id.config_id.id
+                    }
+                    channel = f'pos_order_created_{self.order_id.config_id.id}'
+                    self.env["bus.bus"]._sendone(channel, "notification", message)
+            else:
+                # Just notify about this line
+                message = {
+                    'res_model': self._name,
+                    'message': 'pos_order_line_progress',
+                    'order_id': self.order_id.id,
+                    'config_id': self.order_id.config_id.id
+                }
+                channel = f'pos_order_created_{self.order_id.config_id.id}'
+                self.env["bus.bus"]._sendone(channel, "notification", message)

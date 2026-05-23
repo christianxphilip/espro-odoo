@@ -16,9 +16,11 @@ class KitchenScreenDashboard extends Component {
         // Method binding
         this.getCurrentShopId = this.getCurrentShopId.bind(this);
         this.loadOrders = this.loadOrders.bind(this);
-        this.startCountdown = this.startCountdown.bind(this);
+        this.startElapsedTimer = this.startElapsedTimer.bind(this);
         this.updateCountdownState = this.updateCountdownState.bind(this);
         this.onPosOrderCreation = this.onPosOrderCreation.bind(this);
+        this.playNotificationSound = this.playNotificationSound.bind(this);
+        this.playWarningSound = this.playWarningSound.bind(this);
         this.accept_order = this.accept_order.bind(this);
         this.done_order = this.done_order.bind(this);
         this.cancel_order = this.cancel_order.bind(this);
@@ -26,6 +28,7 @@ class KitchenScreenDashboard extends Component {
         this.forceRefresh = this.forceRefresh.bind(this);
 
         // Stage change methods
+        this.all_stage = (e) => this.state.stages = 'all';
         this.ready_stage = (e) => this.state.stages = 'ready';
         this.waiting_stage = (e) => this.state.stages = 'waiting';
         this.draft_stage = (e) => this.state.stages = 'draft';
@@ -39,7 +42,7 @@ class KitchenScreenDashboard extends Component {
         this.state = useState({
             order_details: [],
             shop_id: this.currentShopId,
-            stages: 'draft',
+            stages: 'all',
             draft_count: 0,
             waiting_count: 0,
             ready_count: 0,
@@ -93,6 +96,7 @@ class KitchenScreenDashboard extends Component {
 
             this.state.order_details = result.orders || [];
             this.state.lines = result.order_lines || [];
+            this.state.config = result.config || {};
 
             const activeOrders = this.state.order_details.filter(order => {
                 const configMatch = Array.isArray(order.config_id) ?
@@ -121,9 +125,9 @@ class KitchenScreenDashboard extends Component {
             this.state.ready_count = activeOrders.filter(o => o.order_status === 'ready').length;
 
             activeOrders.forEach(order => {
-                if (order.order_status === 'waiting' && order.avg_prepare_time) {
+                if (order.order_status === 'draft' || order.order_status === 'waiting') {
                     if (!this.countdownIntervals[order.id]) {
-                        this.startCountdown(order.id, order.avg_prepare_time);
+                        this.startElapsedTimer(order.id, order.date_order);
                     }
                 } else if (order.order_status === 'ready') {
                     this.updateCountdownState(order.id, 0, true);
@@ -140,54 +144,59 @@ class KitchenScreenDashboard extends Component {
         }
     }
 
-    async startCountdown(orderId, timeString,config_id) {
+    async startElapsedTimer(orderId, dateOrderStr) {
         if (this.countdownIntervals[orderId]) {
             clearInterval(this.countdownIntervals[orderId]);
         }
 
-        const [minutes, seconds] = timeString.toFixed(2).split('.').map(Number);
-        let totalSeconds = minutes * 60 + seconds;
+        const dateOrder = new Date(dateOrderStr.replace(' ', 'T') + 'Z'); // Convert UTC string to Date
 
-        this.updateCountdownState(orderId, totalSeconds, false);
-
-        this.countdownIntervals[orderId] = setInterval(async () => {
-            totalSeconds--;
+        this.countdownIntervals[orderId] = setInterval(() => {
+            const now = new Date();
+            const totalSeconds = Math.max(0, Math.floor((now - dateOrder) / 1000));
             this.updateCountdownState(orderId, totalSeconds, false);
-            if (totalSeconds <= 0) {
-                try {
-
-                    let orderData = await this.orm.call(
-                        'kitchen.screen',
-                        'search_read',
-                        [
-                            [["pos_config_id", "=", config_id[0]]],
-                            ["is_preparation_complete"]
-                        ]
-                    );
-                    clearInterval(this.countdownIntervals[orderId]);
-                    delete this.countdownIntervals[orderId];
-                    this.updateCountdownState(orderId, 0, true);
-                    if (orderData[0].is_preparation_complete === true){
-                        this.done_order({ target: { value: orderId.toString() } });
-                    }
-
-                } catch (error) {
-                    console.error("Error fetching order data:", error);
-                    // Handle error appropriately
-                }
-            }
         }, 1000);
     }
 
     updateCountdownState(orderId, totalSeconds, isCompleted = false) {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
+        const previousAlertLevel = this.state.countdowns[orderId] ? this.state.countdowns[orderId].alert_level : 'normal';
+        let alert_level = 'normal';
+        
+        if (!isCompleted && this.state.config) {
+            const orderLines = this.state.lines.filter(l => l.order_id && l.order_id[0] === orderId);
+            const numItems = orderLines.reduce((sum, l) => sum + (l.qty || 1), 0) || 1;
+            
+            const warningPerItem = this.state.config.warning_time_per_item || 5;
+            const dangerPerItem = this.state.config.danger_time_per_item || 10;
+            
+            const warningThreshold = numItems * warningPerItem;
+            const dangerThreshold = numItems * dangerPerItem;
+            
+            if (minutes >= dangerThreshold) {
+                alert_level = 'danger';
+            } else if (minutes >= warningThreshold) {
+                alert_level = 'warning';
+            }
+            
+            // Play sound if alert level escalated
+            if (alert_level !== previousAlertLevel) {
+                if (alert_level === 'warning') {
+                    this.playWarningSound('warning');
+                } else if (alert_level === 'danger') {
+                    this.playWarningSound('danger');
+                }
+            }
+        }
+
         this.state.countdowns = {
             ...this.state.countdowns,
             [orderId]: {
                 minutes,
                 seconds,
-                isCompleted
+                isCompleted,
+                alert_level
             }
         };
     }
@@ -204,25 +213,86 @@ class KitchenScreenDashboard extends Component {
             'pos_order_accepted',
             'pos_order_cancelled',
             'pos_order_completed',
-            'pos_order_line_updated'
+            'pos_order_line_updated',
+            'pos_order_line_progress',
+            'pos_order_recalled',
+            'pos_order_cleared'
         ];
 
         if ((message.res_model === "pos.order" || message.res_model === "pos.order.line") &&
             relevantMessages.includes(message.message)) {
+            
+            if (message.message === 'pos_order_created') {
+                this.playNotificationSound();
+            }
+            
             this.loadOrders();
         }
     }
 
+    playNotificationSound() {
+        try {
+            if (!this.notificationSound) {
+                this.notificationSound = new Audio('/point_of_sale/static/src/sounds/notification.mp3');
+            }
+            // Reset to start if it's already playing
+            this.notificationSound.currentTime = 0;
+            this.notificationSound.play().catch((e) => {
+                console.warn("Audio autoplay may be blocked until user interaction:", e);
+            });
+        } catch (error) {
+            console.error("Error playing sound:", error);
+        }
+    }
+
+    playWarningSound(level) {
+        try {
+            if (level === 'warning') {
+                if (!this.warningSoundObj) {
+                    this.warningSoundObj = new Audio('/point_of_sale/static/src/sounds/beep.mp3');
+                }
+                this.warningSoundObj.currentTime = 0;
+                this.warningSoundObj.play().catch(e => console.warn("Audio autoplay blocked:", e));
+            } else if (level === 'danger') {
+                if (!this.dangerSoundObj) {
+                    this.dangerSoundObj = new Audio('/point_of_sale/static/src/sounds/error.mp3');
+                }
+                this.dangerSoundObj.currentTime = 0;
+                this.dangerSoundObj.play().catch(e => console.warn("Audio autoplay blocked:", e));
+            }
+        } catch (error) {
+            console.error("Error playing warning sound:", error);
+        }
+    }
+
+    async recall_order(e) {
+        try {
+            await this.orm.call("pos.order", "recall_latest_ready_order", [this.currentShopId]);
+            setTimeout(() => this.loadOrders(), 500);
+        } catch (error) {
+            console.error("Error recalling order:", error);
+        }
+    }
+
+    async clear_completed_orders(e) {
+        try {
+            await this.orm.call("pos.order", "clear_completed_orders", [this.currentShopId]);
+            setTimeout(() => this.loadOrders(), 500);
+        } catch (error) {
+            console.error("Error clearing completed orders:", error);
+        }
+    }
+
     async accept_order(e) {
-        const orderId = Number(e.target.value);
+        const orderId = Number(e.currentTarget.value || e.currentTarget.dataset.orderId);
         try {
             await this.orm.call("pos.order", "order_progress_draft", [orderId]);
 
             const order = this.state.order_details.find(o => o.id === orderId);
             if (order) {
                 order.order_status = 'waiting';
-                if (order.avg_prepare_time) {
-                    this.startCountdown(orderId, order.avg_prepare_time, order.config_id);
+                if (order.date_order) {
+                    this.startElapsedTimer(orderId, order.date_order);
                 }
             }
 
@@ -233,7 +303,7 @@ class KitchenScreenDashboard extends Component {
     }
 
     async done_order(e) {
-        const orderId = Number(e.target.value);
+        const orderId = Number(e.currentTarget.value || e.currentTarget.dataset.orderId);
         try {
             await this.orm.call("pos.order", "order_progress_change", [orderId]);
 
@@ -290,7 +360,7 @@ class KitchenScreenDashboard extends Component {
             const configMatch = Array.isArray(order.config_id) ?
                 order.config_id[0] === this.currentShopId :
                 order.config_id === this.currentShopId;
-            const stageMatch = order.order_status === this.state.stages;
+            const stageMatch = this.state.stages === 'all' ? true : order.order_status === this.state.stages;
             return configMatch && stageMatch && order.order_status !== 'cancel';
         });
     }

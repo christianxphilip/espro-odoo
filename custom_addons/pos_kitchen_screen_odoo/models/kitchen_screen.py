@@ -54,6 +54,18 @@ class KitchenScreen(models.Model):
         help='Change the cooking stage when completing the preparation time',
     )
 
+    warning_time_per_item = fields.Integer(
+        string='Warning Time Per Item (min)',
+        default=5,
+        help='Minutes per item before the order turns yellow.'
+    )
+    
+    danger_time_per_item = fields.Integer(
+        string='Danger Time Per Item (min)',
+        default=10,
+        help='Minutes per item before the order turns red.'
+    )
+
     def kitchen_screen(self):
         """Redirect to corresponding kitchen screen for the cook"""
         return {
